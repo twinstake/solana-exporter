@@ -1,10 +1,10 @@
 package rpc
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newMethodTester(t *testing.T, method string, result any, err *Error) (*MockServer, *Client) {
@@ -13,7 +13,10 @@ func newMethodTester(t *testing.T, method string, result any, err *Error) (*Mock
 	if err != nil {
 		errs[method] = err
 	}
-	return NewMockClient(t, map[string]any{method: result}, errs, nil, nil, nil, nil)
+	return NewMockClient(t, MockConfig{
+		EasyResults: map[string]any{method: result},
+		EasyErrors:  errs,
+	})
 }
 
 func TestClient_GetBalance(t *testing.T) {
@@ -22,11 +25,10 @@ func TestClient_GetBalance(t *testing.T) {
 		map[string]any{"context": map[string]int{"slot": 1}, "value": 5 * LamportsInSol},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	balance, err := client.GetBalance(ctx, CommitmentFinalized, "")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, float64(5), balance)
 }
 
@@ -44,11 +46,10 @@ func TestClient_GetBlock(t *testing.T) {
 		nil,
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	block, err := client.GetBlock(ctx, CommitmentFinalized, 0, "full")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		&Block{
 			Rewards: []BlockReward{
@@ -82,11 +83,10 @@ func TestClient_GetBlockProduction(t *testing.T) {
 		},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	blockProduction, err := client.GetBlockProduction(ctx, CommitmentFinalized, 0, 0)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		&BlockProduction{
 			ByIdentity: map[string]HostProduction{"85iYT5RuzRTDgjyRa3cP8SYhM2j21fj7NhfJ3peu1DPr": {9888, 9886}},
@@ -101,7 +101,7 @@ func TestClient_GetAccountInfo(t *testing.T) {
 		"getAccountInfo",
 		contextualResult[AccountInfo[map[string]any]]{
 			Context: resultContext{
-				ApiVersion: "2.2.14",
+				APIVersion: "2.2.14",
 				Slot:       343274370,
 			},
 			Value: AccountInfo[map[string]any]{
@@ -156,14 +156,13 @@ func TestClient_GetAccountInfo(t *testing.T) {
 		},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var voteAccountData VoteAccountData
 	accountInfo, err := GetAccountInfo(
 		ctx, client, CommitmentFinalized, "CertusDeBmqN8ZawdkxK5kFGMwBXdudvWHYwtNgNhvLu", &voteAccountData,
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	expectedData := VoteAccountData{
 		AuthorizedVoters: []authorizedVoter{
 			{"Certusm1sa411sMpV9FPqU5dXAYhmmhygvxJ23S6hJ24", 761},
@@ -223,11 +222,10 @@ func TestClient_GetEpochInfo(t *testing.T) {
 		},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	epochInfo, err := client.GetEpochInfo(ctx, CommitmentFinalized)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		EpochInfo{
 			AbsoluteSlot:     166_598,
@@ -243,11 +241,10 @@ func TestClient_GetEpochInfo(t *testing.T) {
 
 func TestClient_GetFirstAvailableBlock(t *testing.T) {
 	_, client := newMethodTester(t, "getFirstAvailableBlock", 250_000, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	block, err := client.GetFirstAvailableBlock(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 250_000, int(block))
 }
 
@@ -255,11 +252,10 @@ func TestClient_GetHealth(t *testing.T) {
 	// using example responses in the docs: https://solana.com/docs/rpc/http/gethealth
 	t.Run("healthy-node", func(t *testing.T) {
 		_, client := newMethodTester(t, "getHealth", "ok", nil)
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		health, err := client.GetHealth(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "ok", health)
 	})
 
@@ -272,11 +268,10 @@ func TestClient_GetHealth(t *testing.T) {
 
 		t.Run("generic", func(t *testing.T) {
 			_, client := newMethodTester(t, "getHealth", nil, &unhealthyErr)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			health, err := client.GetHealth(ctx)
-			assert.Equal(t, health, "")
+			assert.Equal(t, "", health)
 			assert.Equal(t, &unhealthyErr, err)
 		})
 
@@ -284,14 +279,12 @@ func TestClient_GetHealth(t *testing.T) {
 
 		t.Run("specific", func(t *testing.T) {
 			_, client := newMethodTester(t, "getHealth", nil, &unhealthyErr)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			health, err := client.GetHealth(ctx)
-			assert.Equal(t, health, "")
+			assert.Equal(t, "", health)
 			assert.Equal(t, &unhealthyErr, err)
 		})
-
 	})
 }
 
@@ -308,11 +301,10 @@ func TestClient_GetInflationReward(t *testing.T) {
 		},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	inflationReward, err := client.GetInflationReward(ctx, CommitmentFinalized, nil, 2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		[]InflationReward{{Amount: 2_500, Epoch: 2}},
 		inflationReward,
@@ -326,42 +318,38 @@ func TestClient_GetLeaderSchedule(t *testing.T) {
 		"ccc": {10, 11, 12, 13, 14},
 	}
 	_, client := newMethodTester(t, "getLeaderSchedule", expectedSchedule, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	schedule, err := client.GetLeaderSchedule(ctx, CommitmentFinalized, 1)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, expectedSchedule, schedule)
 }
 
 func TestClient_GetMinimumLedgerSlot(t *testing.T) {
 	_, client := newMethodTester(t, "minimumLedgerSlot", 250, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	slot, err := client.GetMinimumLedgerSlot(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(250), slot)
 }
 
 func TestClient_GetSlot(t *testing.T) {
 	_, client := newMethodTester(t, "getSlot", 1234, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	slot, err := client.GetSlot(ctx, CommitmentFinalized)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, int64(1234), slot)
 }
 
 func TestClient_GetVersion(t *testing.T) {
 	expectedResult := map[string]any{"feature-set": 2891131721, "solana-core": "1.16.7"}
 	_, client := newMethodTester(t, "getVersion", expectedResult, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	version, err := client.GetVersion(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, expectedResult["solana-core"], version)
 }
 
@@ -384,11 +372,10 @@ func TestClient_GetVoteAccounts(t *testing.T) {
 		},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	voteAccounts, err := client.GetVoteAccounts(ctx, CommitmentFinalized)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		&VoteAccounts{
 			Current: []VoteAccount{
@@ -410,10 +397,9 @@ func TestClient_GetIdentity(t *testing.T) {
 		"getIdentity", map[string]string{"identity": "random2r1F4iWqVcb8M1DbAjQuFpebkQuW2DJtestkey"},
 		nil,
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	identity, err := client.GetIdentity(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "random2r1F4iWqVcb8M1DbAjQuFpebkQuW2DJtestkey", identity)
 }

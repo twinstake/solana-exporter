@@ -14,7 +14,9 @@ import (
 	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type (
@@ -58,15 +60,14 @@ func NewSimulator(t *testing.T, slot int) (*Simulator, *rpc.Client) {
 		"bbb": {4, 5, 6, 7, 16, 17, 18, 19},
 		"ccc": {8, 9, 10, 11, 20, 21, 22, 23},
 	}
-	mockServer, client := rpc.NewMockClient(t,
-		map[string]any{
+	mockServer, client := rpc.NewMockClient(t, rpc.MockConfig{
+		EasyResults: map[string]any{
 			"getVersion":        map[string]string{"solana-core": "v1.0.0"},
 			"getIdentity":       map[string]string{"identity": "testIdentity"},
 			"getLeaderSchedule": leaderSchedule,
 			"getHealth":         "ok",
 		},
-		nil,
-		map[string]int{
+		Balances: map[string]int{
 			"aaa": 1 * rpc.LamportsInSol,
 			"bbb": 2 * rpc.LamportsInSol,
 			"ccc": 3 * rpc.LamportsInSol,
@@ -74,14 +75,13 @@ func NewSimulator(t *testing.T, slot int) (*Simulator, *rpc.Client) {
 			"BBB": 5 * rpc.LamportsInSol,
 			"CCC": 6 * rpc.LamportsInSol,
 		},
-		map[string]int{
+		InflationRewards: map[string]int{
 			"AAA": inflationRewardLamports,
 			"BBB": inflationRewardLamports,
 			"CCC": inflationRewardLamports,
 		},
-		nil,
-		validatorInfos,
-	)
+		ValidatorInfos: validatorInfos,
+	})
 	simulator := Simulator{
 		Slot:                    0,
 		Server:                  mockServer,
@@ -200,8 +200,8 @@ func newTestConfig(simulator *Simulator, fast bool) *ExporterConfig {
 		pace = time.Duration(500) * time.Millisecond
 	}
 	config := ExporterConfig{
-		HttpTimeout:                      time.Second * time.Duration(1),
-		RpcUrl:                           simulator.Server.URL(),
+		HTTPTimeout:                      time.Second * time.Duration(1),
+		RPCURL:                           simulator.Server.URL(),
 		ListenAddress:                    ":8080",
 		Nodekeys:                         simulator.Nodekeys,
 		Votekeys:                         simulator.Votekeys,
@@ -218,6 +218,17 @@ func newTestConfig(simulator *Simulator, fast bool) *ExporterConfig {
 		EpochCleanupTime: 5 * time.Second,
 	}
 	return &config
+}
+
+// runCollectionTests asserts that each collectionTest's metric collects to its expected exposition text.
+func runCollectionTests(t *testing.T, collector prometheus.Collector, tests []collectionTest) {
+	t.Helper()
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			err := testutil.CollectAndCompare(collector, bytes.NewBufferString(test.ExpectedResponse), test.Name)
+			assert.NoErrorf(t, err, "unexpected collecting result for %s: \n%s", test.Name, err)
+		})
+	}
 }
 
 func TestSolanaCollector(t *testing.T) {
@@ -299,12 +310,7 @@ func TestSolanaCollector(t *testing.T) {
 		),
 	}
 
-	for _, test := range testCases {
-		t.Run(test.Name, func(t *testing.T) {
-			err := testutil.CollectAndCompare(collector, bytes.NewBufferString(test.ExpectedResponse), test.Name)
-			assert.NoErrorf(t, err, "unexpected collecting result for %s: \n%s", test.Name, err)
-		})
-	}
+	runCollectionTests(t, collector, testCases)
 }
 
 func TestSolanaCollector_collectHealth(t *testing.T) {
@@ -314,17 +320,10 @@ func TestSolanaCollector_collectHealth(t *testing.T) {
 	prometheus.NewPedanticRegistry().MustRegister(collector)
 
 	t.Run("healthy", func(t *testing.T) {
-		testCases := []collectionTest{
+		runCollectionTests(t, collector, []collectionTest{
 			collector.NodeIsHealthy.makeCollectionTest(NewLV(1)),
 			collector.NodeNumSlotsBehind.makeCollectionTest(NewLV(0)),
-		}
-
-		for _, test := range testCases {
-			t.Run(test.Name, func(t *testing.T) {
-				err := testutil.CollectAndCompare(collector, bytes.NewBufferString(test.ExpectedResponse), test.Name)
-				assert.NoErrorf(t, err, "unexpected collecting result for %s: \n%s", test.Name, err)
-			})
-		}
+		})
 	})
 
 	getHealthErr := rpc.Error{
@@ -339,13 +338,129 @@ func TestSolanaCollector_collectHealth(t *testing.T) {
 	t.Run("unhealthy", func(t *testing.T) {
 		simulator.Server.SetOpt(rpc.EasyErrorsOpt, "getHealth", getHealthErr)
 
-		testCases := []collectionTest{
+		runCollectionTests(t, collector, []collectionTest{
 			collector.NodeIsHealthy.makeCollectionTest(NewLV(0)),
+		})
+	})
+}
+
+// collectToSlice runs a single collect method and returns everything it emitted to the channel.
+func collectToSlice(collect func(context.Context, chan<- prometheus.Metric)) []prometheus.Metric {
+	ch := make(chan prometheus.Metric, 32)
+	collect(context.Background(), ch)
+	close(ch)
+	var metrics []prometheus.Metric
+	for m := range ch {
+		metrics = append(metrics, m)
+	}
+	return metrics
+}
+
+// TestSolanaCollector_collectErrorPaths checks that when an RPC call fails, each collector degrades gracefully by
+// emitting an invalid metric (which surfaces the error on scrape) rather than panicking or reporting a bogus value.
+func TestSolanaCollector_collectErrorPaths(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		pick   func(*SolanaCollector) func(context.Context, chan<- prometheus.Metric)
+	}{
+		{"version", "getVersion", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) { return c.collectVersion }},
+		{"identity", "getIdentity", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) { return c.collectIdentity }},
+		{"minimum ledger slot", "minimumLedgerSlot", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) {
+			return c.collectMinimumLedgerSlot
+		}},
+		{"first available block", "getFirstAvailableBlock", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) {
+			return c.collectFirstAvailableBlock
+		}},
+		{"vote accounts", "getVoteAccounts", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) { return c.collectVoteAccounts }},
+		{"balances", "getBalance", func(c *SolanaCollector) func(context.Context, chan<- prometheus.Metric) { return c.collectBalances }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			simulator, client := NewSimulator(t, 0)
+			simulator.Server.SetOpt(rpc.EasyErrorsOpt, tt.method, rpc.Error{
+				Code:    -32000,
+				Method:  tt.method,
+				Message: "simulated failure",
+			})
+			collector := NewSolanaCollector(client, newTestConfig(simulator, false))
+
+			metrics := collectToSlice(tt.pick(collector))
+			require.NotEmpty(t, metrics, "expected at least one metric to be emitted on RPC failure")
+			for _, m := range metrics {
+				// prometheus.NewInvalidMetric returns its wrapped error from Write.
+				assert.Error(t, m.Write(&dto.Metric{}), "expected an invalid metric on RPC error")
+			}
+		})
+	}
+}
+
+// TestSolanaCollector_collectVoteAccounts_delinquent checks that a delinquent validator is reported as delinquent and
+// counted in the delinquent cluster bucket rather than the current one.
+func TestSolanaCollector_collectVoteAccounts_delinquent(t *testing.T) {
+	simulator, client := NewSimulator(t, 35)
+	// move validator "ccc" into the delinquent set:
+	info := simulator.Server.GetValidatorInfo("ccc")
+	info.Delinquent = true
+	simulator.Server.SetOpt(rpc.ValidatorInfoOpt, "ccc", info)
+
+	collector := NewSolanaCollector(client, newTestConfig(simulator, false))
+	prometheus.NewPedanticRegistry().MustRegister(collector)
+
+	runCollectionTests(t, collector, []collectionTest{
+		collector.ValidatorDelinquent.makeCollectionTest(
+			NewLV(0, "aaa", "AAA"),
+			NewLV(0, "bbb", "BBB"),
+			NewLV(1, "ccc", "CCC"),
+		),
+		collector.ClusterValidatorCount.makeCollectionTest(
+			NewLV(2, StateCurrent),
+			NewLV(1, StateDelinquent),
+		),
+	})
+}
+
+// TestSolanaCollector_LightMode verifies that light mode exports only node-local metrics (health, version, identity)
+// and skips everything observable from any RPC node (stake, balances, ledger slots, vote accounts).
+func TestSolanaCollector_LightMode(t *testing.T) {
+	simulator, client := NewSimulator(t, 35)
+
+	config := newTestConfig(simulator, false)
+	config.LightMode = true
+	config.ComprehensiveSlotTracking = false
+	config.ComprehensiveVoteAccountTracking = false
+	config.MonitorBlockSizes = false
+	config.Nodekeys = nil
+	config.Votekeys = nil
+	config.BalanceAddresses = nil
+	config.ActiveIdentity = ""
+
+	collector := NewSolanaCollector(client, config)
+	prometheus.NewPedanticRegistry().MustRegister(collector)
+
+	t.Run("node-local metrics are exported", func(t *testing.T) {
+		runCollectionTests(t, collector, []collectionTest{
+			collector.NodeVersion.makeCollectionTest(NewLV(1, "v1.0.0")),
+			collector.NodeIdentity.makeCollectionTest(NewLV(1, "testIdentity")),
+			collector.NodeIsHealthy.makeCollectionTest(NewLV(1)),
+			collector.NodeNumSlotsBehind.makeCollectionTest(NewLV(0)),
+		})
+	})
+
+	t.Run("cluster-observable metrics are skipped", func(t *testing.T) {
+		skipped := []*GaugeDesc{
+			collector.ValidatorActiveStake,
+			collector.ClusterActiveStake,
+			collector.ValidatorDelinquent,
+			collector.AccountBalances,
+			collector.NodeMinimumLedgerSlot,
+			collector.NodeFirstAvailableBlock,
 		}
-		for _, test := range testCases {
-			t.Run(test.Name, func(t *testing.T) {
-				err := testutil.CollectAndCompare(collector, bytes.NewBufferString(test.ExpectedResponse), test.Name)
-				assert.NoErrorf(t, err, "unexpected collecting result for %s: \n%s", test.Name, err)
+		for _, desc := range skipped {
+			t.Run(desc.Name, func(t *testing.T) {
+				// an empty expected body means the metric must produce no samples at all
+				err := testutil.CollectAndCompare(collector, bytes.NewBufferString(""), desc.Name)
+				assert.NoErrorf(t, err, "expected %s to be skipped in light mode", desc.Name)
 			})
 		}
 	})

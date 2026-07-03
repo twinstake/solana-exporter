@@ -58,6 +58,7 @@ func NewSlotWatcher(client *rpc.Client, config *ExporterConfig) *SlotWatcher {
 		config:         config,
 		nodekeyTracker: NewEpochTrackedValidators(),
 		// metrics:
+		//nolint:promlinter // gauge intentionally named with _total suffix as it acts as a counter
 		TotalTransactionsMetric: prometheus.NewGauge(prometheus.GaugeOpts{
 			// even though this isn't a counter, it is supposed to act as one,
 			// and so we name it with the _total suffix
@@ -127,7 +128,7 @@ func NewSlotWatcher(client *rpc.Client, config *ExporterConfig) *SlotWatcher {
 		BlockSizeMetric: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "solana_validator_block_size",
-				Help: fmt.Sprintf("Number of transactions per block, grouped by %s", NodekeyLabel),
+				Help: "Number of transactions per block, grouped by " + NodekeyLabel,
 			},
 			[]string{NodekeyLabel, TransactionTypeLabel},
 		),
@@ -155,13 +156,14 @@ func NewSlotWatcher(client *rpc.Client, config *ExporterConfig) *SlotWatcher {
 		if err := prometheus.Register(collector); err != nil {
 			var (
 				alreadyRegisteredErr *prometheus.AlreadyRegisteredError
-				duplicateErr         = strings.Contains(err.Error(), "duplicate metrics collector registration attempted")
+				duplicateErr         = strings.Contains(
+					err.Error(), "duplicate metrics collector registration attempted",
+				)
 			)
 			if errors.As(err, &alreadyRegisteredErr) || duplicateErr {
 				continue
-			} else {
-				logger.Fatal(fmt.Errorf("failed to register collector: %w", err))
 			}
+			logger.Fatal(fmt.Errorf("failed to register collector: %w", err))
 		}
 	}
 	return &watcher
@@ -180,7 +182,8 @@ func (c *SlotWatcher) WatchSlots(ctx context.Context) {
 			return
 		default:
 			<-ticker.C
-			// TODO: separate fee-rewards watching from general slot watching, such that general slot watching commitment level can be dropped to confirmed
+			// TODO: separate fee-rewards watching from general slot watching, such that general slot
+			//  watching commitment level can be dropped to confirmed
 			commitment := rpc.CommitmentFinalized
 			epochInfo, err := c.client.GetEpochInfo(ctx, commitment)
 			if err != nil {
@@ -227,7 +230,7 @@ func (c *SlotWatcher) trackEpoch(ctx context.Context, epoch *rpc.EpochInfo) {
 		c.firstSlot = firstSlot
 		c.lastSlot = lastSlot
 		// we don't backfill on startup. we set the watermark to current slot minus 1,
-		//such that the current slot is the first slot tracked
+		// such that the current slot is the first slot tracked
 		c.slotWatermark = epoch.AbsoluteSlot - 1
 	} else {
 		// if c.currentEpoch is already set, then, just in case, run some checks
@@ -349,7 +352,7 @@ func (c *SlotWatcher) moveSlotWatermark(ctx context.Context, to int64) {
 }
 
 // fetchAndEmitBlockProduction fetches block production from startSlot up to the provided endSlot [inclusive],
-// and emits the prometheus metrics,
+// and emits the prometheus metrics,.
 func (c *SlotWatcher) fetchAndEmitBlockProduction(ctx context.Context, startSlot, endSlot int64) {
 	if c.config.LightMode {
 		c.logger.Debug("Skipping block-production fetching in light mode.")
@@ -399,7 +402,7 @@ func (c *SlotWatcher) fetchAndEmitBlockProduction(ctx context.Context, startSlot
 }
 
 // fetchAndEmitBlockInfos fetches and emits all the fee rewards (+ block sizes) for the tracked addresses between the
-// startSlot and endSlot [inclusive]
+// startSlot and endSlot [inclusive].
 func (c *SlotWatcher) fetchAndEmitBlockInfos(ctx context.Context, startSlot, endSlot int64) {
 	if c.config.LightMode {
 		c.logger.Debug("Skipping block-infos fetching in light mode.")
@@ -484,7 +487,7 @@ func (c *SlotWatcher) fetchAndEmitSingleBlockInfo(
 }
 
 // fetchAndEmitInflationRewards fetches and emits the inflation rewards for the configured inflationRewardAddresses
-// at the provided epoch
+// at the provided epoch.
 func (c *SlotWatcher) fetchAndEmitInflationRewards(ctx context.Context, epoch int64) error {
 	if c.config.LightMode {
 		c.logger.Debug("Skipping inflation-rewards fetching in light mode.")

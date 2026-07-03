@@ -5,7 +5,11 @@ import (
 	"fmt"
 )
 
-// error codes: https://github.com/anza-xyz/agave/blob/489f483e1d7b30ef114e0123994818b2accfa389/rpc-client-api/src/custom_error.rs#L17
+// RPC error codes as defined in the agave source, rpc-client-api/src/custom_error.rs:
+//
+// https://github.com/anza-xyz/agave/blob/489f483e1d7b30ef114e0123994818b2accfa389/rpc-client-api/src/custom_error.rs#L17
+//
+//nolint:lll // upstream source URL cannot be wrapped
 const (
 	BlockCleanedUpCode                           = -32001
 	SendTransactionPreflightFailureCode          = -32002
@@ -28,12 +32,14 @@ const (
 )
 
 type (
+	// NodeUnhealthyErrorData is the structured data returned alongside a NodeUnhealthyCode RPC error.
 	NodeUnhealthyErrorData struct {
 		NumSlotsBehind int64 `json:"numSlotsBehind"`
 	}
 )
 
-func UnpackRpcErrorData[T any](rpcErr *Error, formatted T) error {
+// UnpackRPCErrorData decodes the Data field of an RPC error into the provided typed struct.
+func UnpackRPCErrorData[T any](rpcErr *Error, formatted T) error {
 	bytesData, err := json.Marshal(rpcErr.Data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal %s rpc-error data: %w", rpcErr.Method, err)

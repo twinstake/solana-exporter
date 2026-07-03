@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"testing"
+	"time"
+
 	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
+	"github.com/stretchr/testify/require"
 )
 
 type slotMetricValues struct {
@@ -86,9 +87,9 @@ func TestSlotWatcher_WatchSlots_Static(t *testing.T) {
 
 	// make sure inflation rewards are collected:
 	epochInfo, err := client.GetEpochInfo(ctx, rpc.CommitmentFinalized)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	err = watcher.fetchAndEmitInflationRewards(ctx, epochInfo.Epoch)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	time.Sleep(1 * time.Second)
 
 	type testCase struct {
@@ -109,12 +110,12 @@ func TestSlotWatcher_WatchSlots_Static(t *testing.T) {
 
 	// add inflation reward tests:
 	inflationRewards, err := client.GetInflationReward(ctx, rpc.CommitmentFinalized, simulator.Votekeys, 2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	for i, rewardInfo := range inflationRewards {
 		tests = append(
 			tests,
 			testCase{
-				fmt.Sprintf("inflation_rewards_%s", simulator.Votekeys[i]),
+				"inflation_rewards_" + simulator.Votekeys[i],
 				float64(rewardInfo.Amount) / float64(rpc.LamportsInSol),
 				watcher.InflationRewardsMetric.WithLabelValues(simulator.Votekeys[i], toString(epochInfo.Epoch)),
 			},
@@ -140,8 +141,7 @@ func TestSlotWatcher_WatchSlots_Dynamic(t *testing.T) {
 	watcher.LeaderSlotsByEpochMetric.Reset()
 
 	// start client/collector and wait a bit:
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go watcher.WatchSlots(ctx)
 	time.Sleep(time.Second)
 
@@ -152,7 +152,7 @@ func TestSlotWatcher_WatchSlots_Dynamic(t *testing.T) {
 
 	// wait a bit:
 	var epochChanged bool
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		// wait a bit then get new metrics
 		time.Sleep(time.Second)
 		final := getSlotMetricValues(watcher)
@@ -279,8 +279,7 @@ func TestSlotWatcher_cleanUpEpoch(t *testing.T) {
 	watcher.LeaderSlotsByEpochMetric.Reset()
 
 	// start client/collector and wait a bit:
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go watcher.WatchSlots(ctx)
 	time.Sleep(time.Second)
 
@@ -320,5 +319,32 @@ func TestSlotWatcher_cleanUpEpoch(t *testing.T) {
 	var expected float64
 	for _, counter := range counters {
 		assert.Equal(t, expected, testutil.ToFloat64(counter))
+	}
+}
+
+func TestSlotWatcher_checkValidSlotRange(t *testing.T) {
+	// watcher tracking epoch 5, spanning slots [100, 199].
+	watcher := &SlotWatcher{currentEpoch: 5, firstSlot: 100, lastSlot: 199}
+	tests := []struct {
+		name     string
+		from, to int64
+		wantErr  bool
+	}{
+		{name: "whole epoch", from: 100, to: 199},
+		{name: "sub-range", from: 120, to: 130},
+		{name: "single slot at boundary", from: 199, to: 199},
+		{name: "from before first slot", from: 99, to: 150, wantErr: true},
+		{name: "to after last slot", from: 150, to: 200, wantErr: true},
+		{name: "range entirely outside", from: 300, to: 400, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := watcher.checkValidSlotRange(tt.from, tt.to)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
 	}
 }

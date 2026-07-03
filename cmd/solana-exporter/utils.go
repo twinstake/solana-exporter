@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
-	"github.com/asymmetric-research/solana-exporter/pkg/slog"
 	"slices"
 	"sync"
+
+	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
+	"github.com/asymmetric-research/solana-exporter/pkg/slog"
 )
 
 const VoteProgram = "Vote111111111111111111111111111111111111111"
@@ -62,13 +63,13 @@ func assertf(condition bool, format string, args ...any) {
 	}
 }
 
-// toString is just a simple utility function for converting to strings
+// toString is just a simple utility function for converting to strings.
 func toString(i any) string {
 	return fmt.Sprintf("%v", i)
 }
 
 // SelectFromSchedule takes a leader-schedule and returns a trimmed leader-schedule
-// containing only the slots within the provided range
+// containing only the slots within the provided range.
 func SelectFromSchedule(schedule map[string][]int64, startSlot, endSlot int64) map[string][]int64 {
 	selected := make(map[string][]int64)
 	for key, values := range schedule {
@@ -111,7 +112,7 @@ func GetTrimmedLeaderSchedule(
 	return trimmedLeaderSchedule, nil
 }
 
-// GetAssociatedValidatorAccounts returns the votekeys associated with a given list of nodekeys
+// GetAssociatedValidatorAccounts returns the votekeys associated with a given list of nodekeys.
 func GetAssociatedValidatorAccounts(
 	ctx context.Context, client *rpc.Client, commitment rpc.Commitment, nodekeys, votekeys []string,
 ) ([]string, []string, error) {
@@ -181,7 +182,7 @@ func GetAssociatedValidatorAccounts(
 	return associatedNodekeys, associatedVotekeys, nil
 }
 
-// FetchBalances fetches SOL balances for a list of addresses
+// FetchBalances fetches SOL balances for a list of addresses.
 func FetchBalances(ctx context.Context, client *rpc.Client, addresses []string) (map[string]float64, error) {
 	balances := make(map[string]float64)
 	for _, address := range addresses {
@@ -207,7 +208,7 @@ func CombineUnique[T comparable](args ...[]T) []T {
 	return uniqueItems
 }
 
-// GetEpochBounds returns the first slot and last slot within an [inclusive] Epoch
+// GetEpochBounds returns the first slot and last slot within an [inclusive] Epoch.
 func GetEpochBounds(info *rpc.EpochInfo) (int64, int64) {
 	firstSlot := info.AbsoluteSlot - info.SlotIndex
 	return firstSlot, firstSlot + info.SlotsInEpoch - 1
@@ -232,7 +233,7 @@ func CountVoteTransactions(block *rpc.Block) (int, error) {
 	return voteCount, nil
 }
 
-// BoolToFloat64 converts a boolean to either 1.0 or 0.0
+// BoolToFloat64 converts a boolean to either 1.0 or 0.0.
 func BoolToFloat64(b bool) float64 {
 	if b {
 		return 1
@@ -241,7 +242,7 @@ func BoolToFloat64(b bool) float64 {
 }
 
 // ExtractHealthAndNumSlotsBehind takes the outputs from the GetHealth RPC method and determines the corresponding
-// health status and number of slots behind, along with potential errors corresponding to each metric
+// health status and number of slots behind, along with potential errors corresponding to each metric.
 func ExtractHealthAndNumSlotsBehind(health string, getHealthErr error) (
 	isHealthy bool, isHealthyErr error, numSlotsBehind int64, numSlotsBehindErr error,
 ) {
@@ -268,13 +269,13 @@ func ExtractHealthAndNumSlotsBehind(health string, getHealthErr error) (
 		if rpcError.Data == nil {
 			// this is the generic case:
 			// TODO: in this generic case, do we want to emit an error to the solana_node_num_slots_behind metric?
-			//  The node is definitely unhealthy, but we do not have the information to determine what numSlotsBehind is,
-			//  so do we say 0 or error?
+			//  The node is definitely unhealthy, but we do not have the information to determine what
+			//  numSlotsBehind is, so do we say 0 or error?
 			return false, nil, 0, fmt.Errorf("unhealthy node but cannot determine numSlotsBehind: %w", getHealthErr)
 		}
 
 		var errorData rpc.NodeUnhealthyErrorData
-		if err := rpc.UnpackRpcErrorData(rpcError, &errorData); err != nil {
+		if err := rpc.UnpackRPCErrorData(rpcError, &errorData); err != nil {
 			// if we error here, it means we have the incorrect format:
 			return false, nil, 0, fmt.Errorf("failed to unpack RPC error data: %w", err)
 		}
@@ -293,5 +294,4 @@ func ExtractHealthAndNumSlotsBehind(health string, getHealthErr error) (
 
 	// in this expected case, we are healthy + no error:
 	return true, nil, 0, nil
-
 }

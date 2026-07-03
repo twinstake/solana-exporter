@@ -1,13 +1,14 @@
 package main
 
 import (
-	"context"
 	_ "embed"
 	"encoding/json"
-	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
-	"github.com/stretchr/testify/assert"
 	"sort"
 	"testing"
+
+	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSelectFromSchedule(t *testing.T) {
@@ -27,21 +28,19 @@ func TestSelectFromSchedule(t *testing.T) {
 }
 
 func TestGetTrimmedLeaderSchedule(t *testing.T) {
-	_, client := rpc.NewMockClient(t,
-		map[string]any{
+	_, client := rpc.NewMockClient(t, rpc.MockConfig{
+		EasyResults: map[string]any{
 			"getLeaderSchedule": map[string]any{
 				"aaa": []int{0, 3, 6, 9, 12},
 				"bbb": []int{1, 4, 7, 10, 13},
 				"ccc": []int{2, 5, 8, 11, 14},
 			},
 		},
-		nil, nil, nil, nil, nil,
-	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	})
+	ctx := t.Context()
 
 	schedule, err := GetTrimmedLeaderSchedule(ctx, client, []string{"aaa", "bbb"}, 10, 10)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, map[string][]int64{"aaa": {10, 13, 16, 19, 22}, "bbb": {11, 14, 17, 20, 23}}, schedule)
 }
 
@@ -55,17 +54,15 @@ func TestCombineUnique(t *testing.T) {
 	assert.Equal(t, []string{"1", "2", "3", "4", "5"}, CombineUnique(v1, v2, v3))
 	assert.Equal(t, []string{"2", "3", "4", "5"}, CombineUnique(nil, v2, v3))
 	assert.Equal(t, []string{"1", "2", "3", "4", "5"}, CombineUnique(v1, nil, v3))
-
 }
 
 func TestFetchBalances(t *testing.T) {
 	simulator, client := NewSimulator(t, 0)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	fetchedBalances, err := FetchBalances(ctx, client, CombineUnique(simulator.Nodekeys, simulator.Votekeys))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		map[string]float64{"aaa": 1, "bbb": 2, "ccc": 3, "AAA": 4, "BBB": 5, "CCC": 6},
 		fetchedBalances,
@@ -75,18 +72,17 @@ func TestFetchBalances(t *testing.T) {
 func TestGetAssociatedValidatorAccounts(t *testing.T) {
 	simulator, client := NewSimulator(t, 1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// test finding vote accounts from identities:
 	_, votekeys, err := GetAssociatedValidatorAccounts(ctx, client, rpc.CommitmentFinalized, simulator.Nodekeys, nil)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	sort.Strings(votekeys)
 	assert.Equal(t, simulator.Votekeys, votekeys)
 
 	// test finding identities from vote accounts:
 	nodekeys, _, err := GetAssociatedValidatorAccounts(ctx, client, rpc.CommitmentFinalized, nil, simulator.Votekeys)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	sort.Strings(nodekeys)
 	assert.Equal(t, simulator.Nodekeys, nodekeys)
 
@@ -98,7 +94,7 @@ func TestGetAssociatedValidatorAccounts(t *testing.T) {
 		[]string{simulator.Nodekeys[0], simulator.Nodekeys[1]},
 		[]string{simulator.Votekeys[1], simulator.Votekeys[2]},
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	sort.Strings(nodekeys)
 	sort.Strings(votekeys)
 	assert.Equal(t, simulator.Votekeys, votekeys)
@@ -118,10 +114,10 @@ var blockJson []byte
 func TestCountVoteTransactions(t *testing.T) {
 	var block rpc.Block
 	err := json.Unmarshal(blockJson, &block)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	voteCount, err := CountVoteTransactions(&block)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// https://explorer.solana.com/block/297609329
 	assert.Equal(t, 1048, voteCount)
 	assert.Equal(t, 446, len(block.Transactions)-voteCount)
@@ -138,7 +134,7 @@ func TestEpochTrackedValidators_GetTrackedValidators(t *testing.T) {
 		"simple_get",
 		func(t *testing.T) {
 			nodekeys, err := etv.GetTrackedValidators(1)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			sort.Strings(nodekeys)
 			assert.Equal(t, []string{"a", "b"}, nodekeys)
 		},
@@ -147,7 +143,7 @@ func TestEpochTrackedValidators_GetTrackedValidators(t *testing.T) {
 		"second-get",
 		func(t *testing.T) {
 			nodekeys, err := etv.GetTrackedValidators(2)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			sort.Strings(nodekeys)
 			assert.Equal(t, []string{"c", "d"}, nodekeys)
 		},
@@ -159,7 +155,6 @@ func TestEpochTrackedValidators_GetTrackedValidators(t *testing.T) {
 			assert.Error(t, err)
 		},
 	)
-
 }
 
 func TestEpochTrackedValidators_AddTrackedValidators(t *testing.T) {
@@ -185,13 +180,13 @@ func TestExtractHealthAndNumSlotsBehind(t *testing.T) {
 		health, healthErr, slots, slotsErr := ExtractHealthAndNumSlotsBehind("ok", nil)
 		assert.Equal(t, true, health)
 		assert.NoError(t, healthErr)
-		assert.Equal(t, slots, int64(0))
+		assert.Equal(t, int64(0), slots)
 		assert.NoError(t, slotsErr)
 	})
 
 	t.Run("unhealthy-node", func(t *testing.T) {
 		getHealthErr := rpc.Error{
-			Code:    -32005,
+			Code:    rpc.NodeUnhealthyCode,
 			Method:  "getHealth",
 			Message: "Node is unhealthy",
 		}
@@ -199,7 +194,7 @@ func TestExtractHealthAndNumSlotsBehind(t *testing.T) {
 			health, healthErr, slots, slotsErr := ExtractHealthAndNumSlotsBehind("", &getHealthErr)
 			assert.Equal(t, false, health)
 			assert.NoError(t, healthErr)
-			assert.Equal(t, slots, int64(0))
+			assert.Equal(t, int64(0), slots)
 			assert.Error(t, slotsErr)
 		})
 

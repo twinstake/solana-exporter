@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewExporterConfig(t *testing.T) {
@@ -13,7 +14,7 @@ func TestNewExporterConfig(t *testing.T) {
 	tests := []struct {
 		name                             string
 		httpTimeout                      time.Duration
-		rpcUrl                           string
+		rpcURL                           string
 		listenAddress                    string
 		nodekeys                         []string
 		votekeys                         []string
@@ -32,7 +33,7 @@ func TestNewExporterConfig(t *testing.T) {
 		{
 			name:                             "valid configuration",
 			httpTimeout:                      60 * time.Second,
-			rpcUrl:                           simulator.Server.URL(),
+			rpcURL:                           simulator.Server.URL(),
 			listenAddress:                    ":8080",
 			nodekeys:                         simulator.Nodekeys,
 			votekeys:                         simulator.Votekeys,
@@ -51,7 +52,7 @@ func TestNewExporterConfig(t *testing.T) {
 		{
 			name:                             "light mode with incompatible options",
 			httpTimeout:                      60 * time.Second,
-			rpcUrl:                           simulator.Server.URL(),
+			rpcURL:                           simulator.Server.URL(),
 			listenAddress:                    ":8080",
 			nodekeys:                         simulator.Nodekeys,
 			votekeys:                         simulator.Votekeys,
@@ -70,7 +71,7 @@ func TestNewExporterConfig(t *testing.T) {
 		{
 			name:                             "empty node keys",
 			httpTimeout:                      60 * time.Second,
-			rpcUrl:                           simulator.Server.URL(),
+			rpcURL:                           simulator.Server.URL(),
 			listenAddress:                    ":8080",
 			nodekeys:                         []string{},
 			votekeys:                         []string{},
@@ -89,7 +90,7 @@ func TestNewExporterConfig(t *testing.T) {
 		{
 			name:                             "valid light mode configuration",
 			httpTimeout:                      60 * time.Second,
-			rpcUrl:                           "http://invalid-rpc:9999",
+			rpcURL:                           "http://invalid-rpc:9999",
 			listenAddress:                    ":8080",
 			nodekeys:                         []string{},
 			votekeys:                         []string{},
@@ -112,7 +113,7 @@ func TestNewExporterConfig(t *testing.T) {
 			config, err := NewExporterConfig(
 				context.Background(),
 				tt.httpTimeout,
-				tt.rpcUrl,
+				tt.rpcURL,
 				tt.listenAddress,
 				tt.nodekeys,
 				tt.votekeys,
@@ -132,11 +133,11 @@ func TestNewExporterConfig(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 
 			// Verify config values
-			assert.Equal(t, tt.httpTimeout, config.HttpTimeout)
-			assert.Equal(t, tt.rpcUrl, config.RpcUrl)
+			assert.Equal(t, tt.httpTimeout, config.HTTPTimeout)
+			assert.Equal(t, tt.rpcURL, config.RPCURL)
 			assert.Equal(t, tt.listenAddress, config.ListenAddress)
 			assert.Equal(t, tt.expectedNodekeys, config.Nodekeys)
 			assert.Equal(t, tt.expectedVotekeys, config.Votekeys)
@@ -147,6 +148,39 @@ func TestNewExporterConfig(t *testing.T) {
 			assert.Equal(t, tt.slotPace, config.SlotPace)
 			assert.Equal(t, tt.epochCleanupTime, config.EpochCleanupTime)
 			assert.Equal(t, tt.monitorBlockSizes, config.MonitorBlockSizes)
+		})
+	}
+}
+
+func TestValidateLightModeFlags(t *testing.T) {
+	keys := []string{"aaa"}
+	tests := []struct {
+		name                             string
+		nodekeys, votekeys, balanceAddrs []string
+		comprehensiveSlotTracking        bool
+		comprehensiveVoteAccountTracking bool
+		monitorBlockSizes                bool
+		wantErr                          bool
+	}{
+		{name: "no incompatible flags"},
+		{name: "comprehensive slot tracking", comprehensiveSlotTracking: true, wantErr: true},
+		{name: "comprehensive vote account tracking", comprehensiveVoteAccountTracking: true, wantErr: true},
+		{name: "monitor block sizes", monitorBlockSizes: true, wantErr: true},
+		{name: "nodekeys set", nodekeys: keys, wantErr: true},
+		{name: "votekeys set", votekeys: keys, wantErr: true},
+		{name: "balance addresses set", balanceAddrs: keys, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLightModeFlags(
+				tt.nodekeys, tt.votekeys, tt.balanceAddrs,
+				tt.comprehensiveSlotTracking, tt.comprehensiveVoteAccountTracking, tt.monitorBlockSizes,
+			)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
 		})
 	}
 }

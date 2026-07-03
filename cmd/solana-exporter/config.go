@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"time"
@@ -14,8 +15,8 @@ type (
 	arrayFlags []string
 
 	ExporterConfig struct {
-		HttpTimeout                      time.Duration
-		RpcUrl                           string
+		HTTPTimeout                      time.Duration
+		RPCURL                           string
 		ListenAddress                    string
 		Nodekeys                         []string
 		Votekeys                         []string
@@ -39,10 +40,33 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
+// validateLightModeFlags returns an error if any flag that is incompatible with light mode is set.
+func validateLightModeFlags(
+	nodekeys, votekeys, balanceAddresses []string,
+	comprehensiveSlotTracking, comprehensiveVoteAccountTracking, monitorBlockSizes bool,
+) error {
+	switch {
+	case comprehensiveSlotTracking:
+		return errors.New("'-light-mode' is incompatible with `-comprehensive-slot-tracking`")
+	case comprehensiveVoteAccountTracking:
+		return errors.New("'-light-mode' is incompatible with '-comprehensive-vote-account-tracking'")
+	case monitorBlockSizes:
+		return errors.New("'-light-mode' is incompatible with `-monitor-block-sizes`")
+	case len(nodekeys) > 0:
+		return errors.New("'-light-mode' is incompatible with `-nodekey`")
+	case len(votekeys) > 0:
+		return errors.New("'-light-mode' is incompatible with `-votekey`")
+	case len(balanceAddresses) > 0:
+		return errors.New("'-light-mode' is incompatible with `-balance-addresses`")
+	default:
+		return nil
+	}
+}
+
 func NewExporterConfig(
 	ctx context.Context,
 	httpTimeout time.Duration,
-	rpcUrl string,
+	rpcURL string,
 	listenAddress string,
 	nodekeys []string,
 	votekeys []string,
@@ -59,7 +83,7 @@ func NewExporterConfig(
 	logger.Infow(
 		"Setting up export config with ",
 		"httpTimeout", httpTimeout.Seconds(),
-		"rpcUrl", rpcUrl,
+		"rpcURL", rpcURL,
 		"listenAddress", listenAddress,
 		"nodekeys", nodekeys,
 		"votekeys", votekeys,
@@ -73,28 +97,11 @@ func NewExporterConfig(
 		"epochCleanupTime", epochCleanupTime,
 	)
 	if lightMode {
-		if comprehensiveSlotTracking {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with `-comprehensive-slot-tracking`")
-		}
-
-		if comprehensiveVoteAccountTracking {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with '-comprehensive-vote-account-tracking'")
-		}
-
-		if monitorBlockSizes {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with `-monitor-block-sizes`")
-		}
-
-		if len(nodekeys) > 0 {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with `-nodekey`")
-		}
-
-		if len(votekeys) > 0 {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with `-votekey`")
-		}
-
-		if len(balanceAddresses) > 0 {
-			return nil, fmt.Errorf("'-light-mode' is incompatible with `-balance-addresses`")
+		if err := validateLightModeFlags(
+			nodekeys, votekeys, balanceAddresses,
+			comprehensiveSlotTracking, comprehensiveVoteAccountTracking, monitorBlockSizes,
+		); err != nil {
+			return nil, err
 		}
 	}
 
@@ -103,7 +110,7 @@ func NewExporterConfig(
 	if !lightMode {
 		ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 		defer cancel()
-		client := rpc.NewRPCClient(rpcUrl, httpTimeout)
+		client := rpc.NewRPCClient(rpcURL, httpTimeout)
 		var err error
 		associatedNodekeys, associatedVotekeys, err = GetAssociatedValidatorAccounts(
 			ctx, client, rpc.CommitmentFinalized, nodekeys, votekeys,
@@ -114,8 +121,8 @@ func NewExporterConfig(
 	}
 
 	config := ExporterConfig{
-		HttpTimeout:                      httpTimeout,
-		RpcUrl:                           rpcUrl,
+		HTTPTimeout:                      httpTimeout,
+		RPCURL:                           rpcURL,
 		ListenAddress:                    listenAddress,
 		Nodekeys:                         associatedNodekeys,
 		Votekeys:                         associatedVotekeys,
@@ -135,7 +142,7 @@ func NewExporterConfig(
 func NewExporterConfigFromCLI(ctx context.Context) (*ExporterConfig, error) {
 	var (
 		httpTimeout                      int
-		rpcUrl                           string
+		rpcURL                           string
 		listenAddress                    string
 		nodekeys                         arrayFlags
 		votekeys                         arrayFlags
@@ -155,7 +162,7 @@ func NewExporterConfigFromCLI(ctx context.Context) (*ExporterConfig, error) {
 		"HTTP timeout to use, in seconds.",
 	)
 	flag.StringVar(
-		&rpcUrl,
+		&rpcURL,
 		"rpc-url",
 		"http://localhost:8899",
 		"Solana RPC URL (including protocol and path), "+
@@ -230,14 +237,15 @@ func NewExporterConfigFromCLI(ctx context.Context) (*ExporterConfig, error) {
 		&activeIdentity,
 		"active-identity",
 		"",
-		"Validator identity public key that determines if the node is considered active in the 'solana_node_is_active' metric.",
+		"Validator identity public key that determines if the node is considered active in the "+
+			"'solana_node_is_active' metric.",
 	)
 	flag.Parse()
 
 	config, err := NewExporterConfig(
 		ctx,
 		time.Duration(httpTimeout)*time.Second,
-		rpcUrl,
+		rpcURL,
 		listenAddress,
 		nodekeys,
 		votekeys,
