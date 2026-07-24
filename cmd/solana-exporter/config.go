@@ -41,23 +41,20 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 // validateLightModeFlags returns an error if any flag that is incompatible with light mode is set.
-func validateLightModeFlags(
-	nodekeys, votekeys, balanceAddresses []string,
-	comprehensiveSlotTracking, comprehensiveVoteAccountTracking, monitorBlockSizes bool,
-) error {
+func (c *ExporterConfig) validateLightModeFlags() error {
 	switch {
-	case comprehensiveSlotTracking:
-		return errors.New("'-light-mode' is incompatible with `-comprehensive-slot-tracking`")
-	case comprehensiveVoteAccountTracking:
+	case c.ComprehensiveSlotTracking:
+		return errors.New("'-light-mode' is incompatible with '-comprehensive-slot-tracking'")
+	case c.ComprehensiveVoteAccountTracking:
 		return errors.New("'-light-mode' is incompatible with '-comprehensive-vote-account-tracking'")
-	case monitorBlockSizes:
-		return errors.New("'-light-mode' is incompatible with `-monitor-block-sizes`")
-	case len(nodekeys) > 0:
-		return errors.New("'-light-mode' is incompatible with `-nodekey`")
-	case len(votekeys) > 0:
-		return errors.New("'-light-mode' is incompatible with `-votekey`")
-	case len(balanceAddresses) > 0:
-		return errors.New("'-light-mode' is incompatible with `-balance-addresses`")
+	case c.MonitorBlockSizes:
+		return errors.New("'-light-mode' is incompatible with '-monitor-block-sizes'")
+	case len(c.Nodekeys) > 0:
+		return errors.New("'-light-mode' is incompatible with '-nodekey'")
+	case len(c.Votekeys) > 0:
+		return errors.New("'-light-mode' is incompatible with '-votekey'")
+	case len(c.BalanceAddresses) > 0:
+		return errors.New("'-light-mode' is incompatible with '-balance-address'")
 	default:
 		return nil
 	}
@@ -96,36 +93,12 @@ func NewExporterConfig(
 		"slotPace", slotPace,
 		"epochCleanupTime", epochCleanupTime,
 	)
-	if lightMode {
-		if err := validateLightModeFlags(
-			nodekeys, votekeys, balanceAddresses,
-			comprehensiveSlotTracking, comprehensiveVoteAccountTracking, monitorBlockSizes,
-		); err != nil {
-			return nil, err
-		}
-	}
-
-	// get votekeys from rpc (skip in light mode since nodekeys/votekeys are empty):
-	var associatedNodekeys, associatedVotekeys []string
-	if !lightMode {
-		ctx, cancel := context.WithTimeout(ctx, httpTimeout)
-		defer cancel()
-		client := rpc.NewRPCClient(rpcURL, httpTimeout)
-		var err error
-		associatedNodekeys, associatedVotekeys, err = GetAssociatedValidatorAccounts(
-			ctx, client, rpc.CommitmentFinalized, nodekeys, votekeys,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error getting associated validator accounts: %w", err)
-		}
-	}
-
 	config := ExporterConfig{
 		HTTPTimeout:                      httpTimeout,
 		RPCURL:                           rpcURL,
 		ListenAddress:                    listenAddress,
-		Nodekeys:                         associatedNodekeys,
-		Votekeys:                         associatedVotekeys,
+		Nodekeys:                         nodekeys,
+		Votekeys:                         votekeys,
 		BalanceAddresses:                 balanceAddresses,
 		ComprehensiveSlotTracking:        comprehensiveSlotTracking,
 		ComprehensiveVoteAccountTracking: comprehensiveVoteAccountTracking,
@@ -134,6 +107,25 @@ func NewExporterConfig(
 		SlotPace:                         slotPace,
 		ActiveIdentity:                   activeIdentity,
 		EpochCleanupTime:                 epochCleanupTime,
+	}
+	if lightMode {
+		if err := config.validateLightModeFlags(); err != nil {
+			return nil, err
+		}
+	}
+
+	// get votekeys from rpc (skip in light mode since nodekeys/votekeys are empty):
+	if !lightMode {
+		ctx, cancel := context.WithTimeout(ctx, httpTimeout)
+		defer cancel()
+		client := rpc.NewRPCClient(rpcURL, httpTimeout)
+		associatedNodekeys, associatedVotekeys, err := GetAssociatedValidatorAccounts(
+			ctx, client, rpc.CommitmentFinalized, nodekeys, votekeys,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting associated validator accounts: %w", err)
+		}
+		config.Nodekeys, config.Votekeys = associatedNodekeys, associatedVotekeys
 	}
 
 	return &config, nil

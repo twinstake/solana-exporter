@@ -34,6 +34,29 @@ jobs:
               - 'go.sum'
               - '.golangci.yml'
 
+  version-sync:
+    name: golangci-lint version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Check golangci-lint version matches tools/go.mod
+        run: |
+          tools_ver=$(grep -oE 'github\.com/golangci/golangci-lint/v2 v[0-9]+\.[0-9]+\.[0-9]+' tools/go.mod | awk '{print $2}')
+          wf_ver=$(grep -oE 'version: v[0-9]+\.[0-9]+\.[0-9]+' .github/workflows/golangci-lint.yml | awk '{print $2}')
+          echo "tools/go.mod:  $tools_ver"
+          echo "workflow:      $wf_ver"
+          if [ -z "$tools_ver" ] || [ -z "$wf_ver" ]; then
+            echo "::error::Could not extract golangci-lint version from one of the files."
+            exit 1
+          fi
+          if [ "$tools_ver" != "$wf_ver" ]; then
+            echo "::error::golangci-lint version mismatch: tools/go.mod pins $tools_ver but the workflow uses $wf_ver. Keep them in sync (see comment above the 'version:' key)."
+            exit 1
+          fi
+          echo "Versions are in sync ($tools_ver)."
+
   golangci:
     name: golangci-lint
     runs-on: ubuntu-latest

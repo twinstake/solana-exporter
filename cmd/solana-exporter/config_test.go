@@ -102,8 +102,8 @@ func TestNewExporterConfig(t *testing.T) {
 			slotPace:                         time.Second,
 			epochCleanupTime:                 60 * time.Second,
 			wantErr:                          false,
-			expectedNodekeys:                 nil,
-			expectedVotekeys:                 nil,
+			expectedNodekeys:                 []string{},
+			expectedVotekeys:                 []string{},
 			activeIdentity:                   "",
 		},
 	}
@@ -172,10 +172,16 @@ func TestValidateLightModeFlags(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateLightModeFlags(
-				tt.nodekeys, tt.votekeys, tt.balanceAddrs,
-				tt.comprehensiveSlotTracking, tt.comprehensiveVoteAccountTracking, tt.monitorBlockSizes,
-			)
+			config := ExporterConfig{
+				Nodekeys:                         tt.nodekeys,
+				Votekeys:                         tt.votekeys,
+				BalanceAddresses:                 tt.balanceAddrs,
+				ComprehensiveSlotTracking:        tt.comprehensiveSlotTracking,
+				ComprehensiveVoteAccountTracking: tt.comprehensiveVoteAccountTracking,
+				MonitorBlockSizes:                tt.monitorBlockSizes,
+				LightMode:                        true,
+			}
+			err := config.validateLightModeFlags()
 			if tt.wantErr {
 				assert.Error(t, err)
 				return

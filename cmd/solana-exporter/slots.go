@@ -352,7 +352,7 @@ func (c *SlotWatcher) moveSlotWatermark(ctx context.Context, to int64) {
 }
 
 // fetchAndEmitBlockProduction fetches block production from startSlot up to the provided endSlot [inclusive],
-// and emits the prometheus metrics,.
+// and emits the prometheus metrics.
 func (c *SlotWatcher) fetchAndEmitBlockProduction(ctx context.Context, startSlot, endSlot int64) {
 	if c.config.LightMode {
 		c.logger.Debug("Skipping block-production fetching in light mode.")
