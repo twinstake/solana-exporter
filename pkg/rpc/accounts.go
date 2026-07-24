@@ -1,6 +1,8 @@
+// Package rpc provides a client and response types for the Solana JSON-RPC API.
 package rpc
 
 type (
+	// VoteAccountData is the parsed on-chain data of a vote account.
 	VoteAccountData struct {
 		AuthorizedVoters     []authorizedVoter `json:"authorizedVoters"`
 		AuthorizedWithdrawer string            `json:"authorizedWithdrawer"`

@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
 	"github.com/asymmetric-research/solana-exporter/pkg/slog"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// readHeaderTimeout bounds how long the metrics server will wait to read request headers.
+const readHeaderTimeout = 10 * time.Second
 
 func main() {
 	slog.Init()
@@ -26,7 +30,7 @@ func main() {
 		)
 	}
 
-	rpcClient := rpc.NewRPCClient(config.RpcUrl, config.HttpTimeout)
+	rpcClient := rpc.NewRPCClient(config.RPCURL, config.HTTPTimeout)
 	collector := NewSolanaCollector(rpcClient, config)
 	slotWatcher := NewSlotWatcher(rpcClient, config)
 	ctx, cancel := context.WithCancel(ctx)
@@ -34,8 +38,15 @@ func main() {
 	go slotWatcher.WatchSlots(ctx)
 
 	prometheus.MustRegister(collector)
-	http.Handle("/metrics", promhttp.Handler())
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	server := &http.Server{
+		Addr:              config.ListenAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 
 	logger.Infof("listening on %s", config.ListenAddress)
-	logger.Fatal(http.ListenAndServe(config.ListenAddress, nil))
+	logger.Fatal(server.ListenAndServe())
 }

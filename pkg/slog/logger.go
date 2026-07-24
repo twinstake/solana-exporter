@@ -1,16 +1,18 @@
+// Package slog provides a small wrapper around zap for structured logging.
 package slog
 
 import (
 	"fmt"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"os"
 	"strings"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var log *zap.SugaredLogger
 
-// Init initializes the logger
+// Init initializes the logger.
 func Init() {
 	config := zap.NewProductionConfig()
 
@@ -20,17 +22,17 @@ func Init() {
 
 	logger, err := config.Build()
 	if err != nil {
-		panic(fmt.Errorf("error initializing logger: %v", err))
+		panic(fmt.Errorf("error initializing logger: %w", err))
 	}
 	log = logger.Sugar()
 }
 
-// Get returns the global logger instance
+// Get returns the global logger instance.
 func Get() *zap.SugaredLogger {
 	return log
 }
 
-// Sync flushes any buffered log entries
+// Sync flushes any buffered log entries.
 func Sync() error {
 	return log.Sync()
 }

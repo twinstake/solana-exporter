@@ -1,9 +1,9 @@
+// Package main implements solana-exporter, a Prometheus exporter for Solana nodes.
 package main
 
 import (
 	"context"
 	"fmt"
-
 	"slices"
 
 	"github.com/asymmetric-research/solana-exporter/pkg/rpc"
@@ -106,7 +106,7 @@ func NewSolanaCollector(rpcClient *rpc.Client, config *ExporterConfig) *SolanaCo
 		),
 		AccountBalances: NewGaugeDesc(
 			"solana_account_balance",
-			fmt.Sprintf("Solana account balances, grouped by %s", AddressLabel),
+			"Solana account balances, grouped by "+AddressLabel,
 			AddressLabel,
 		),
 		NodeVersion: NewGaugeDesc(
@@ -197,8 +197,7 @@ func (c *SolanaCollector) collectVoteAccounts(ctx context.Context, ch chan<- pro
 	)
 	for _, account := range append(voteAccounts.Current, voteAccounts.Delinquent...) {
 		accounts := []string{account.VotePubkey, account.NodePubkey}
-		stake, lastVote, rootSlot, commission :=
-			float64(account.ActivatedStake)/rpc.LamportsInSol,
+		stake, lastVote, rootSlot, commission := float64(account.ActivatedStake)/rpc.LamportsInSol,
 			float64(account.LastVote),
 			float64(account.RootSlot),
 			float64(account.Commission)
@@ -347,7 +346,6 @@ func (c *SolanaCollector) collectHealth(ctx context.Context, ch chan<- prometheu
 	}
 
 	c.logger.Info("Health collected.")
-	return
 }
 
 func (c *SolanaCollector) Collect(ch chan<- prometheus.Metric) {

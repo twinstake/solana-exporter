@@ -15,25 +15,28 @@ import (
 )
 
 type (
+	// Client is a Solana JSON-RPC client.
 	Client struct {
-		HttpClient  http.Client
-		RpcUrl      string
-		HttpTimeout time.Duration
+		HTTPClient  http.Client
+		RPCURL      string
+		HTTPTimeout time.Duration
 		logger      *zap.SugaredLogger
 	}
 
+	// Request is a JSON-RPC request envelope.
 	Request struct {
 		Jsonrpc string `json:"jsonrpc"`
-		Id      int    `json:"id"`
+		ID      int    `json:"id"`
 		Method  string `json:"method"`
 		Params  []any  `json:"params"`
 	}
 
+	// Commitment describes how finalized a block is at a given point in time.
 	Commitment string
 )
 
 const (
-	// LamportsInSol is the number of lamports in 1 SOL (a billion)
+	// LamportsInSol is the number of lamports in 1 SOL (a billion).
 	LamportsInSol = 1_000_000_000
 	// CommitmentFinalized level offers the highest level of certainty for a transaction on the Solana blockchain.
 	// A transaction is considered “Finalized” when it is included in a block that has been confirmed by a
@@ -45,12 +48,15 @@ const (
 	// CommitmentProcessed level represents a transaction that has been received by the network and included in a block.
 	CommitmentProcessed Commitment = "processed"
 
-	DevnetGenesisHash  = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+	// DevnetGenesisHash is the genesis block hash identifying the devnet cluster.
+	DevnetGenesisHash = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+	// TestnetGenesisHash is the genesis block hash identifying the testnet cluster.
 	TestnetGenesisHash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
+	// MainnetGenesisHash is the genesis block hash identifying the mainnet-beta cluster.
 	MainnetGenesisHash = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d"
 )
 
-// GetClusterFromGenesisHash returns the cluster name based on the genesis hash
+// GetClusterFromGenesisHash returns the cluster name based on the genesis hash.
 func GetClusterFromGenesisHash(hash string) (string, error) {
 	switch hash {
 	case DevnetGenesisHash:
@@ -64,8 +70,9 @@ func GetClusterFromGenesisHash(hash string) (string, error) {
 	}
 }
 
+// NewRPCClient returns a Client that issues JSON-RPC calls to rpcAddr with the given per-request timeout.
 func NewRPCClient(rpcAddr string, httpTimeout time.Duration) *Client {
-	return &Client{HttpClient: http.Client{}, RpcUrl: rpcAddr, HttpTimeout: httpTimeout, logger: slog.Get()}
+	return &Client{HTTPClient: http.Client{}, RPCURL: rpcAddr, HTTPTimeout: httpTimeout, logger: slog.Get()}
 }
 
 func getResponse[T any](
@@ -73,7 +80,7 @@ func getResponse[T any](
 ) error {
 	logger := slog.Get()
 	// format request:
-	request := &Request{Jsonrpc: "2.0", Id: 1, Method: method, Params: params}
+	request := &Request{Jsonrpc: "2.0", ID: 1, Method: method, Params: params}
 	buffer, err := json.Marshal(request)
 	if err != nil {
 		logger.Fatalf("failed to marshal request: %v", err)
@@ -81,20 +88,20 @@ func getResponse[T any](
 	logger.Debugf("jsonrpc request: %s", string(buffer))
 
 	// make request:
-	ctx, cancel := context.WithTimeout(ctx, client.HttpTimeout)
+	ctx, cancel := context.WithTimeout(ctx, client.HTTPTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", client.RpcUrl, bytes.NewBuffer(buffer))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, client.RPCURL, bytes.NewBuffer(buffer))
 	if err != nil {
 		logger.Fatalf("failed to create request: %v", err)
 	}
-	req.Header.Set("content-type", "application/json")
+	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.HttpClient.Do(req)
+	// The RPC URL is operator-configured, not attacker-controlled, so this is not an SSRF vector.
+	resp, err := client.HTTPClient.Do(req) //nolint:gosec // G704: RPC URL is operator-configured
 	if err != nil {
 		return fmt.Errorf("%s rpc call failed: %w", method, err)
 	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

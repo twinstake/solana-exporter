@@ -26,7 +26,7 @@ const (
 )
 
 type (
-	// MockServer represents a mock Solana RPC server for testing
+	// MockServer represents a mock Solana RPC server for testing.
 	MockServer struct {
 		server   *http.Server
 		listener net.Listener
@@ -62,29 +62,33 @@ type (
 	}
 )
 
-// NewMockServer creates a new mock server instance
-func NewMockServer(
-	easyResults map[string]any,
-	easyErrors map[string]*Error,
-	balances map[string]int,
-	inflationRewards map[string]int,
-	slotInfos map[int]MockSlotInfo,
-	validatorInfos map[string]MockValidatorInfo,
-) (*MockServer, error) {
+// MockConfig holds the canned responses for a MockServer. All fields are optional; the zero value yields a server that
+// only serves the built-in method defaults. Populate only the fields a test needs.
+type MockConfig struct {
+	EasyResults      map[string]any
+	EasyErrors       map[string]*Error
+	Balances         map[string]int
+	InflationRewards map[string]int
+	SlotInfos        map[int]MockSlotInfo
+	ValidatorInfos   map[string]MockValidatorInfo
+}
+
+// NewMockServer creates a new mock server instance.
+func NewMockServer(config MockConfig) (*MockServer, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %v", err)
+		return nil, fmt.Errorf("failed to create listener: %w", err)
 	}
 
 	ms := &MockServer{
 		listener:         listener,
 		logger:           slog.Get(),
-		easyResults:      easyResults,
-		easyErrors:       easyErrors,
-		balances:         balances,
-		inflationRewards: inflationRewards,
-		SlotInfos:        slotInfos,
-		validatorInfos:   validatorInfos,
+		easyResults:      config.EasyResults,
+		easyErrors:       config.EasyErrors,
+		balances:         config.Balances,
+		inflationRewards: config.InflationRewards,
+		SlotInfos:        config.SlotInfos,
+		validatorInfos:   config.ValidatorInfos,
 	}
 
 	mux := http.NewServeMux()
@@ -99,12 +103,12 @@ func NewMockServer(
 	return ms, nil
 }
 
-// URL returns the URL of the mock server
+// URL returns the URL of the mock server.
 func (s *MockServer) URL() string {
-	return fmt.Sprintf("http://%s", s.listener.Addr().String())
+	return "http://" + s.listener.Addr().String()
 }
 
-// Close shuts down the mock server
+// Close shuts down the mock server.
 func (s *MockServer) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -289,7 +293,7 @@ func (s *MockServer) getResult(method string, params ...any) (any, *Error) {
 }
 
 func (s *MockServer) handleRPCRequest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -300,7 +304,7 @@ func (s *MockServer) handleRPCRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := Response[any]{Jsonrpc: "2.0", Id: request.Id}
+	response := Response[any]{Jsonrpc: "2.0", ID: request.ID}
 	result, rpcErr := s.getResult(request.Method, request.Params...)
 	if rpcErr != nil {
 		response.Error = *rpcErr
@@ -315,17 +319,9 @@ func (s *MockServer) handleRPCRequest(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// NewMockClient creates a new test client with a running mock server
-func NewMockClient(
-	t *testing.T,
-	easyResults map[string]any,
-	easyErrors map[string]*Error,
-	balances map[string]int,
-	inflationRewards map[string]int,
-	slotInfos map[int]MockSlotInfo,
-	validatorInfos map[string]MockValidatorInfo,
-) (*MockServer, *Client) {
-	server, err := NewMockServer(easyResults, easyErrors, balances, inflationRewards, slotInfos, validatorInfos)
+// NewMockClient creates a new test client with a running mock server.
+func NewMockClient(t *testing.T, config MockConfig) (*MockServer, *Client) {
+	server, err := NewMockServer(config)
 	if err != nil {
 		t.Fatalf("failed to create mock server: %v", err)
 	}

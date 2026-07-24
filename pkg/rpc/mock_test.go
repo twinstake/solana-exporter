@@ -1,42 +1,36 @@
 package rpc
 
 import (
-	"context"
-	"github.com/stretchr/testify/assert"
 	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockServer_getBalance(t *testing.T) {
-	_, client := NewMockClient(
-		t, nil, nil, map[string]int{"aaa": 2 * LamportsInSol}, nil, nil, nil,
-	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	_, client := NewMockClient(t, MockConfig{
+		Balances: map[string]int{"aaa": 2 * LamportsInSol},
+	})
+	ctx := t.Context()
 
 	balance, err := client.GetBalance(ctx, CommitmentFinalized, "aaa")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, float64(2), balance)
 }
 
 func TestMockServer_getBlock(t *testing.T) {
-	_, client := NewMockClient(t,
-		nil,
-		nil,
-		nil,
-		nil,
-		map[int]MockSlotInfo{
-			1: {"aaa", &MockBlockInfo{Fee: 10, Transactions: [][]string{{"bbb"}}}},
-			2: {"bbb", &MockBlockInfo{Fee: 5, Transactions: [][]string{{"ccc", "ddd"}}}},
+	_, client := NewMockClient(t, MockConfig{
+		SlotInfos: map[int]MockSlotInfo{
+			1: {Leader: "aaa", Block: &MockBlockInfo{Fee: 10, Transactions: [][]string{{"bbb"}}}},
+			2: {Leader: "bbb", Block: &MockBlockInfo{Fee: 5, Transactions: [][]string{{"ccc", "ddd"}}}},
 		},
-		map[string]MockValidatorInfo{"aaa": {}, "bbb": {}},
-	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ValidatorInfos: map[string]MockValidatorInfo{"aaa": {}, "bbb": {}},
+	})
+	ctx := t.Context()
 
 	block, err := client.GetBlock(ctx, CommitmentFinalized, 1, "full")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		Block{
 			Rewards: []BlockReward{{Pubkey: "aaa", Lamports: 10, RewardType: "fee"}},
@@ -48,7 +42,7 @@ func TestMockServer_getBlock(t *testing.T) {
 	)
 
 	block, err = client.GetBlock(ctx, CommitmentFinalized, 2, "none")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		Block{
 			Rewards:      []BlockReward{{Pubkey: "bbb", Lamports: 5, RewardType: "fee"}},
@@ -59,31 +53,24 @@ func TestMockServer_getBlock(t *testing.T) {
 }
 
 func TestMockServer_getBlockProduction(t *testing.T) {
-	_, client := NewMockClient(
-		t,
-		nil,
-		nil,
-		nil,
-		nil,
-		map[int]MockSlotInfo{
-			1: {"aaa", &MockBlockInfo{}},
-			2: {"aaa", &MockBlockInfo{}},
-			3: {"aaa", &MockBlockInfo{}},
-			4: {"aaa", nil},
-			5: {"bbb", &MockBlockInfo{}},
-			6: {"bbb", nil},
-			7: {"bbb", &MockBlockInfo{}},
-			8: {"bbb", nil},
+	_, client := NewMockClient(t, MockConfig{
+		SlotInfos: map[int]MockSlotInfo{
+			1: {Leader: "aaa", Block: &MockBlockInfo{}},
+			2: {Leader: "aaa", Block: &MockBlockInfo{}},
+			3: {Leader: "aaa", Block: &MockBlockInfo{}},
+			4: {Leader: "aaa", Block: nil},
+			5: {Leader: "bbb", Block: &MockBlockInfo{}},
+			6: {Leader: "bbb", Block: nil},
+			7: {Leader: "bbb", Block: &MockBlockInfo{}},
+			8: {Leader: "bbb", Block: nil},
 		},
-		map[string]MockValidatorInfo{"aaa": {}, "bbb": {}},
-	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ValidatorInfos: map[string]MockValidatorInfo{"aaa": {}, "bbb": {}},
+	})
+	ctx := t.Context()
 
 	firstSlot, lastSlot := int64(1), int64(6)
 	blockProduction, err := client.GetBlockProduction(ctx, CommitmentFinalized, firstSlot, lastSlot)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		BlockProduction{
 			ByIdentity: map[string]HostProduction{
@@ -97,20 +84,13 @@ func TestMockServer_getBlockProduction(t *testing.T) {
 }
 
 func TestMockServer_getInflationReward(t *testing.T) {
-	_, client := NewMockClient(t,
-		nil,
-		nil,
-		nil,
-		map[string]int{"AAA": 2_500, "BBB": 2_501, "CCC": 2_502},
-		nil,
-		nil,
-	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	_, client := NewMockClient(t, MockConfig{
+		InflationRewards: map[string]int{"AAA": 2_500, "BBB": 2_501, "CCC": 2_502},
+	})
+	ctx := t.Context()
 
 	rewards, err := client.GetInflationReward(ctx, CommitmentFinalized, []string{"AAA", "BBB"}, 2)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t,
 		[]InflationReward{{Amount: 2_500, Epoch: 2}, {Amount: 2_501, Epoch: 2}},
 		rewards,
@@ -118,23 +98,17 @@ func TestMockServer_getInflationReward(t *testing.T) {
 }
 
 func TestMockServer_getVoteAccounts(t *testing.T) {
-	_, client := NewMockClient(t,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		map[string]MockValidatorInfo{
-			"aaa": {"AAA", 1, 2, false, 10, 11},
-			"bbb": {"BBB", 3, 4, false, 11, 12},
-			"ccc": {"CCC", 5, 6, true, 12, 13},
+	_, client := NewMockClient(t, MockConfig{
+		ValidatorInfos: map[string]MockValidatorInfo{
+			"aaa": {Votekey: "AAA", Stake: 1, LastVote: 2, Delinquent: false, RootSlot: 10, Commission: 11},
+			"bbb": {Votekey: "BBB", Stake: 3, LastVote: 4, Delinquent: false, RootSlot: 11, Commission: 12},
+			"ccc": {Votekey: "CCC", Stake: 5, LastVote: 6, Delinquent: true, RootSlot: 12, Commission: 13},
 		},
-	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	})
+	ctx := t.Context()
 
 	voteAccounts, err := client.GetVoteAccounts(ctx, CommitmentFinalized)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// sort the vote accounts before comparing:
 	sort.Slice(voteAccounts.Current, func(i, j int) bool {
 		return voteAccounts.Current[i].VotePubkey < voteAccounts.Current[j].VotePubkey
@@ -142,11 +116,11 @@ func TestMockServer_getVoteAccounts(t *testing.T) {
 	assert.Equal(t,
 		VoteAccounts{
 			Current: []VoteAccount{
-				{1, 2, "aaa", 10, "AAA", 11},
-				{3, 4, "bbb", 11, "BBB", 12},
+				{ActivatedStake: 1, LastVote: 2, NodePubkey: "aaa", RootSlot: 10, VotePubkey: "AAA", Commission: 11},
+				{ActivatedStake: 3, LastVote: 4, NodePubkey: "bbb", RootSlot: 11, VotePubkey: "BBB", Commission: 12},
 			},
 			Delinquent: []VoteAccount{
-				{5, 6, "ccc", 12, "CCC", 13},
+				{ActivatedStake: 5, LastVote: 6, NodePubkey: "ccc", RootSlot: 12, VotePubkey: "CCC", Commission: 13},
 			},
 		},
 		*voteAccounts,
